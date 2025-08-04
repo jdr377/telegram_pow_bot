@@ -34,7 +34,7 @@ DEFAULT_DIFFICULTY = 2  # trivial by default; adjust as needed
 
 
 # Base URL of the hosted PoW page.  Should point to your copy of pow.html.
-POW_BASE_URL = os.getenv("POW_BASE_URL", "https://example.com/pow.html")
+POW_BASE_URL = os.getenv("POW_BASE_URL", "https://jdr377.github.io/telegram-pow-page/pow.html")
 
 # In-memory store mapping (chat_id, user_id) to a (challenge, difficulty) tuple.
 pending_challenges: dict[tuple[int, int], tuple[str, int]] = {}
