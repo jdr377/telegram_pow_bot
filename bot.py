@@ -113,11 +113,13 @@ async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     key = (chat_id, user.id)
 
     if key not in pending_challenges:
+        await safe_delete(message)
         return
 
     nonce_str = message.text.strip()
+
     if not nonce_str.isdigit():
-        await message.reply_text("Please reply with just the nonce (a number) from the proof-of-work page.")
+        await safe_delete(message)
         return
 
     challenge, difficulty = pending_challenges[key]
@@ -138,9 +140,11 @@ async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             )
         except Exception:
             pass
-        await message.reply_text("✅ Verification successful! You may now speak in this chat.")
+        reply = await message.reply_text("✅ Verification successful!")
+        await safe_delete(message)
+        await safe_delete(reply, delay=10)
     else:
-        await message.reply_text("❌ That nonce is incorrect. Try again.")
+        await safe_delete(message)
 
 async def restrict_user(context, chat_id, user_id):
     try:
@@ -152,6 +156,12 @@ async def restrict_user(context, chat_id, user_id):
     except Exception as e:
         print(f"Restrict failed: {e}")
 
+
+async def safe_delete(msg, delay=5):
+    try:
+        await msg.delete(delay=delay)
+    except Exception:
+        pass
 
 async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("👋 I'm alive.")
@@ -188,11 +198,46 @@ async def new_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await restrict_user(context, chat_id, user_id)
 
     url = build_pow_url(challenge, difficulty)
-    text = f"🔐 New challenge issued.\n\n{url}"
+    text = f"🔐 New challenge issued.\n\nPaste the nonce here once you solve it."
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("🧠 Start Mining", url=url)]
     ])
-    await update.message.reply_text(text, reply_markup=keyboard)
+
+    sent = await update.message.reply_text(text, reply_markup=keyboard)
+    await safe_delete(update.message)        # delete user /new command
+    await safe_delete(sent, delay=15)        # auto-delete bot message
+
+
+async def handle_message_new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for user in update.message.new_chat_members:
+        if user.is_bot:
+            continue
+
+        chat_id = update.effective_chat.id
+        user_id = user.id
+
+        await restrict_user(context, chat_id, user_id)
+
+        challenge = generate_challenge()
+        difficulty = DEFAULT_DIFFICULTY
+        pending_challenges[(chat_id, user_id)] = (challenge, difficulty)
+        url = build_pow_url(challenge, difficulty)
+
+        text = (
+            f"Hello {user.mention_html()}, welcome!\n\n"
+            f"To start chatting, complete this proof-of-work:\n"
+        )
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🧠 Start Mining", url=url)]
+        ])
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+            disable_web_page_preview=True
+        )
 
 
 def main() -> None:
@@ -202,6 +247,7 @@ def main() -> None:
 
     app = ApplicationBuilder().token(token).build()
     app.add_handler(ChatMemberHandler(handle_new_member, ChatMemberHandler.CHAT_MEMBER))
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, handle_message_new_member))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_reply))
     app.add_handler(CommandHandler("triggerpow", trigger_pow))
     app.add_handler(CommandHandler("hello", hello))
