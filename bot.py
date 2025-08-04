@@ -142,6 +142,59 @@ async def handle_user_reply(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     else:
         await message.reply_text("❌ That nonce is incorrect. Try again.")
 
+async def restrict_user(context, chat_id, user_id):
+    try:
+        await context.bot.restrict_chat_member(
+            chat_id=chat_id,
+            user_id=user_id,
+            permissions=ChatPermissions(can_send_messages=False),
+        )
+    except Exception as e:
+        print(f"Restrict failed: {e}")
+
+
+async def hello(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("👋 I'm alive.")
+
+async def mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+
+    target = None
+    if update.message.reply_to_message:
+        target = update.message.reply_to_message.from_user
+    elif context.args:
+        username = context.args[0].lstrip('@')
+        for member in await context.bot.get_chat_administrators(chat_id):
+            if member.user.username == username:
+                target = member.user
+                break
+
+    if not target:
+        await update.message.reply_text("❌ Usage: /mute (reply to user or mention @username)")
+        return
+
+    await restrict_user(context, chat_id, target.id)
+    await update.message.reply_text(f"🔇 {target.mention_html()} has been muted.", parse_mode=ParseMode.HTML)
+
+async def new_challenge(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    user_id = user.id
+
+    challenge = generate_challenge()
+    difficulty = DEFAULT_DIFFICULTY
+    pending_challenges[(chat_id, user_id)] = (challenge, difficulty)
+
+    await restrict_user(context, chat_id, user_id)
+
+    url = build_pow_url(challenge, difficulty)
+    text = f"🔐 New challenge issued.\n\n{url}"
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🧠 Start Mining", url=url)]
+    ])
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+
 def main() -> None:
     token = os.getenv("BOT_TOKEN")
     if not token:
@@ -151,6 +204,9 @@ def main() -> None:
     app.add_handler(ChatMemberHandler(handle_new_member, ChatMemberHandler.CHAT_MEMBER))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_user_reply))
     app.add_handler(CommandHandler("triggerpow", trigger_pow))
+    app.add_handler(CommandHandler("hello", hello))
+    app.add_handler(CommandHandler("mute", mute))
+    app.add_handler(CommandHandler("new", new_challenge))
     app.run_polling()
 
 if __name__ == "__main__":
