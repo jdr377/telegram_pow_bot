@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<!--
+  This is a simple client‑side proof‑of‑work page used in conjunction with the
+  Telegram bot in this repository.  The page reads a challenge message and
+  difficulty from its query parameters, iterates nonces and computes
+  SHA‑256(message + nonce) until it finds a hash that begins with the required
+  number of zero hexadecimal digits.  When a valid nonce is found it is
+  presented to the user along with a button to copy it to the clipboard.
+
+  No external libraries are required – the page uses the Web Crypto API
+  available in modern browsers.  Adjust the difficulty via the `d` query
+  parameter (an integer) as desired.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Proof‑of‑Work Challenge</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+    h1 {
+      font-size: 1.5rem;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.6rem 1rem;
+      font-size: 1rem;
+    }
+    #status {
+      margin-top: 1rem;
+      font-family: monospace;
+      white-space: pre-wrap;
+    }
+    #result {
+      margin-top: 1rem;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+  <h1>Proof‑of‑Work Challenge</h1>
+  <p>
+    To confirm that you are a real person, this page will run a small proof‑of‑work.
+    Click the button below to begin searching for a nonce.  Once a valid nonce is
+    found, copy it and paste it back into the Telegram chat.
+  </p>
+  <p id="params"></p>
+  <button id="start">Start Mining</button>
+  <div id="status"></div>
+  <div id="result"></div>
+  <button id="copy" style="display: none;">Copy Nonce</button>
+
+  <script>
+    // Utility function: convert ArrayBuffer to hex string
+    function bufferToHex(buffer) {
+      return Array.from(new Uint8Array(buffer))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+    // Simple sleep helper to yield to the event loop
+    function sleep(ms) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+    // Parse query parameters
+    const params = new URLSearchParams(window.location.search);
+    const message = params.get("m") || "";
+    const difficulty = parseInt(params.get("d") || "2", 10);
+    document.getElementById("params").textContent =
+      `Message: ${message} | difficulty: ${difficulty} leading zero${difficulty === 1 ? "" : "s"}`;
+
+    const startBtn = document.getElementById("start");
+    const statusDiv = document.getElementById("status");
+    const resultDiv = document.getElementById("result");
+    const copyBtn = document.getElementById("copy");
+
+    startBtn.addEventListener("click", async () => {
+      startBtn.disabled = true;
+      statusDiv.textContent = "Starting…\n";
+      const encoder = new TextEncoder();
+      const regex = new RegExp(`^0{${difficulty}}`);
+      let nonce = 0;
+      while (true) {
+        const data = encoder.encode(message + nonce);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hex = bufferToHex(hashBuffer);
+        if (regex.test(hex)) {
+          statusDiv.textContent += `\n✅ Success! Hash ${hex} meets the requirement.`;
+          resultDiv.textContent = `Your nonce: ${nonce}`;
+          copyBtn.style.display = "inline-block";
+          copyBtn.onclick = () => {
+            navigator.clipboard.writeText(String(nonce)).then(() => {
+              copyBtn.textContent = "Copied!";
+              setTimeout(() => {
+                copyBtn.textContent = "Copy Nonce";
+              }, 2000);
+            });
+          };
+          break;
+        }
+        nonce++;
+        if (nonce % 1000 === 0) {
+          statusDiv.textContent = `Tried ${nonce} nonces…`;
+          // Yield to allow the browser to render and not freeze
+          await sleep(0);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
